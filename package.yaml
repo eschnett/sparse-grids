@@ -1,0 +1,76 @@
+# This YAML file describes your package. Stack will automatically generate a
+# Cabal file when you run `stack build`. See the hpack website for help with
+# this file: <https://github.com/sol/hpack>.
+name: sparse-grids
+version: '0.0.0'
+github: "eschnett/sparse-grids"
+license: MIT
+author: "Erik Schnetter"
+maintainer: "Erik Schnetter"
+# synopsis: A new Haskell package.
+# description: sparse-grids is a new Haskell package.
+# category: Other
+
+extra-source-files:
+  - CHANGELOG.md
+  - LICENSE.md
+  - package.yaml
+  - README.md
+  - stack.yaml
+
+ghc-options:
+  - -foptimal-applicative-do
+  - -funbox-strict-fields
+  - -Wall
+  - -Wcompat
+  - -Wincomplete-record-updates
+  - -Wincomplete-uni-patterns
+  - -Wredundant-constraints
+  - -Wno-unused-matches
+
+library:
+  dependencies:
+    - array
+    - base
+    - containers
+  source-dirs: src
+
+executables:
+  sparse-grids:
+    source-dirs: app
+    main: Main.hs
+    dependencies:
+      - base
+      - sparse-grids
+    ghc-options:
+      - -rtsopts
+      - -threaded
+      - -with-rtsopts=-N
+
+benchmarks:
+  sparse-grids-benchmarks:
+    source-dirs: bench
+    main: Main.hs
+    dependencies:
+      - base
+      - criterion
+      - sparse-grids
+    ghc-options:
+      - -rtsopts
+      - -threaded
+      - -with-rtsopts=-N
+
+tests:
+  sparse-grids-test-suite:
+    source-dirs: test
+    main: Main.hs
+    dependencies:
+      - base
+      - containers
+      - sparse-grids
+      - tasty
+      - tasty-hspec
+    ghc-options:
+      - -rtsopts
+      - -threaded
+      - -with-rtsopts=-N
