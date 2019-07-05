@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -Wno-type-defaults #-}
@@ -5,9 +8,10 @@
 import qualified Test.Tasty
 import Test.Tasty.Hspec
 
+import Data.Ratio
 import qualified Data.Map as M
 import SparseGrid
-
+  
 
 
 mkMap :: [([Int], a)] -> M.Map IndexL a
@@ -70,6 +74,8 @@ spec = parallel $ do
     eval_discrete_fn (make_discrete @Double 2 fn0) (idx_from_list [1,3]) (idx_from_list [1,5]) `shouldBe` 4.5
   it "eval_discrete_fn" $ do
     eval_discrete_fn (make_discrete @Float 2 fn0) (idx_from_list [1,3]) (idx_from_list [1,5]) `shouldBe` 4.5
+  it "eval_discrete_fn" $ do
+    eval_discrete_fn (make_discrete @(Ratio Int) 2 fn0) (idx_from_list [1,3]) (idx_from_list [1,5]) `shouldBe` 4.5
   it "take 3 $ make_interpolant 1 fn0" $ do
     (take 3 $ make_interpolant @Double 1 fn0) `shouldBe`
       [ orda 1 [([1], leva [([1],2.0)])]
