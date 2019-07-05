@@ -30,9 +30,8 @@
 
 module SparseGrid where
 
-import Data.Array.IArray
-import Data.Array.Unboxed as U
 import qualified Data.Map as M
+import qualified Data.Vector.Unboxed as U
 import Control.Monad
 import Data.Bits (shiftL)
 
@@ -43,11 +42,11 @@ type Dim = Int                          -- ^ d \in [0..Dim-1]
 type Order = Int                        -- ^ Approximation order, n >=0
 
 -- | Multi-dimensional index
-newtype IDX = IDX{unIDX :: UArray Int Int}
+newtype IDX = IDX{unIDX :: U.Vector Int}
   deriving (Eq, Ord)
 
 instance Show IDX where
-    show (IDX x) = show $ elems x
+    show (IDX x) = show $ U.toList x
 
 -- | Grid levels. There are 2^IndexL[i] grid points along the
 -- dimension i. Each component of IndexL is >=1 [!]
@@ -59,14 +58,14 @@ type IndexJ = IDX
 
 -- | List of components for an IDX
 idx_to_list :: IDX -> [Int]
-idx_to_list = elems . unIDX
+idx_to_list = U.toList . unIDX
 
 idx_from_list :: [Int] -> IDX
-idx_from_list l = IDX $ listArray (0,length l - 1) l
+idx_from_list = IDX . U.fromList
 
 -- | Compute the L1 norm of IDX
 norm1 :: IDX -> Order
-norm1 = sum . idx_to_list
+norm1 = U.sum . unIDX
 
 
 choose :: [a] -> [a]
@@ -98,8 +97,8 @@ tlevel1 = levels_of_order 2 3
 -- errors, we introduce the newtype DOMU. It has no run-time
 -- overhead
 
-type DOM a = UArray Int a            -- ^ unnormalized domain RI^d
-newtype DOMU a = DOMU{domu :: UArray Int a} -- ^ [0,1]^d
+type DOM a = U.Vector a            -- ^ unnormalized domain RI^d
+newtype DOMU a = DOMU{domu :: U.Vector a} -- ^ [0,1]^d
 
 {-
 -- Convert the function RI^d -> R into [0,1]^d -> R
@@ -150,16 +149,15 @@ instance Show a => Show (AppLevel AList a) where
 -- A point in the discrete domain is identified by an index
 -- (L,J) representing a fractional number J_i/2^L_i, i=0..Dim-1
 
-make_discrete :: (Fractional a, IArray UArray a)
+make_discrete :: (Fractional a, U.Unbox a)
               => Dim -> (DOMU a -> a) -> Approximant M.Map a
 make_discrete d fn = map mk_order [1..]
  where
  mk_order n = AppOrder n (M.fromList . map mk_level $ levels_of_order d n)
  mk_level l = (l, AppLevel (M.fromList . map (mk_pt l) $ proper_js l))
  mk_pt l j = (j, fn $ pt_to_domu l j)
- pt_to_domu :: (Fractional a, IArray UArray a) => IndexL -> IndexJ -> DOMU a
- pt_to_domu l j = DOMU . listArray (bounds $ unIDX l) $
-                   zipWith dpoint_to_R (idx_to_list l) (idx_to_list j)
+ pt_to_domu :: (Fractional a, U.Unbox a) => IndexL -> IndexJ -> DOMU a
+ pt_to_domu l j = DOMU $ U.zipWith dpoint_to_R (unIDX l) (unIDX j)
 
 
 -- | Evaluate a discretized function at the given discrete point
@@ -235,7 +233,7 @@ neighbors_pt l j = do
 
 
 -- | Compute the interpolant
-make_interpolant :: (Fractional a, IArray UArray a)
+make_interpolant :: (Fractional a, U.Unbox a)
                  => Dim -> (DOMU a -> a) -> Approximant AList a
 make_interpolant d fn = map mk_order [1..]
  where
@@ -256,11 +254,11 @@ make_interpolant d fn = map mk_order [1..]
 --  the index j = 1 + 2*floor(2^(l-1) * x)
 --  the function is 1 - abs(2*y - 1), y = fraction(2^(l-1) * x)
 
-eval_phi :: (RealFrac a, IArray UArray a) => IndexL -> DOMU a -> (IndexJ, a)
+eval_phi :: (RealFrac a, U.Unbox a) => IndexL -> DOMU a -> (IndexJ, a)
 eval_phi l (DOMU x) = (idx_from_list js,r)
  where
  (js,r) = foldr (\ (j,v) (js,vs) -> (j:js,v * vs)) ([],1.0) $ 
-          zipWith eval1 (idx_to_list l) (elems x)
+          zipWith eval1 (idx_to_list l) (U.toList x)
  eval1 l x = let xscaled = scale_x (l-1) x
                  (xw,y)  = properFraction xscaled
                  j       = 1 + 2 * xw
@@ -294,7 +292,7 @@ eval_phi l (DOMU x) = (idx_from_list js,r)
 -}
 
 -- | Evaluate an approximant of the given order at the given point in DOMU
-eval_approximant_order :: (RealFrac a, IArray UArray a)
+eval_approximant_order :: (RealFrac a, U.Unbox a)
                        => AppOrder AList a -> DOMU a -> a
 eval_approximant_order (AppOrder _ (AList ls)) xs = foldr eval_l 0 ls
  where
@@ -305,7 +303,7 @@ eval_approximant_order (AppOrder _ (AList ls)) xs = foldr eval_l 0 ls
 
 -- | Here, we assume the grid list to be finite
 -- We should truncate the approximant first
-eval_approximant :: (RealFrac a, IArray UArray a)
+eval_approximant :: (RealFrac a, U.Unbox a)
                  => Approximant AList a -> DOMU a -> a
 eval_approximant grid xs = 
     foldr (\l acc -> acc + eval_approximant_order l xs) 0 grid
@@ -327,23 +325,23 @@ scale_x :: Fractional a => Int -> a -> a
 scale_x l x = x * 2^l
 
 -- | Used for testing. Assume [a] is in [0,1]^d
-to_DOMU :: IArray UArray a => [a] -> DOMU a
-to_DOMU xs = DOMU . listArray (0,length xs - 1) $ xs
+to_DOMU :: U.Unbox a => [a] -> DOMU a
+to_DOMU = DOMU . U.fromList
 
 -- ------------------------------------------------------------------------
 -- * Tests
 
 -- | Sample function on a 2d DOMU
 
-fn0 :: (Num a, IArray UArray a) => DOMU a -> a
+fn0 :: (Num a, U.Unbox a) => DOMU a -> a
 fn0 (DOMU dm) = product $ 
-                zipWith (\c x -> c * (1 - abs (2*x - 1))) [2,3] (elems dm)
+                zipWith (\c x -> c * (1 - abs (2*x - 1))) [2,3] (U.toList dm)
 
-fn1 :: (Num a, IArray UArray a) => DOMU a -> a
+fn1 :: (Num a, U.Unbox a) => DOMU a -> a
 fn1 (DOMU dm) = product $ 
-                zipWith (\c x -> c * (1 - (2*x - 1)^2)) [2,3] (elems dm)
+                zipWith (\c x -> c * (1 - (2*x - 1)^2)) [2,3] (U.toList dm)
 
-td1 :: (Fractional a, IArray UArray a) => [AppOrder M.Map a]
+td1 :: (Fractional a, U.Unbox a) => [AppOrder M.Map a]
 td1 = take 3 $ make_discrete 2 fn1
 {-
  [L[], -- order 1
@@ -383,7 +381,7 @@ td1 = take 3 $ make_discrete 2 fn1
  L[([3],J[([1],0.0),([3],0.0),([5],0.0),([7],0.0)])]]
 -}
 
-ta0 :: (Fractional a, IArray UArray a) => [AppOrder AList a]
+ta0 :: (Fractional a, U.Unbox a) => [AppOrder AList a]
 ta0 = take 4 $ make_interpolant 2 fn0
 {-
  [L[], -- order 1
@@ -395,15 +393,15 @@ ta0 = take 4 $ make_interpolant 2 fn0
     ([3,1],J[([1,1],0.0),([3,1],0.0),([5,1],0.0),([7,1],0.0)])]]
 -}
 
-ta01 :: (RealFrac a, IArray UArray a) => a
+ta01 :: (RealFrac a, U.Unbox a) => a
 ta01 = eval_approximant ta0 (to_DOMU [0.5,0.5])
 -- 6.0
 
-ta02 :: (RealFrac a, IArray UArray a) => a
+ta02 :: (RealFrac a, U.Unbox a) => a
 ta02 = eval_approximant ta0 (to_DOMU [0.49,0.51])
 -- 5.7623999999999995
 
-ta1 :: (Fractional a, IArray UArray a) => [AppOrder AList a]
+ta1 :: (Fractional a, U.Unbox a) => [AppOrder AList a]
 ta1 = take 4 $ make_interpolant 2 fn1
 {-
  [L[], -- order 1
@@ -417,11 +415,11 @@ ta1 = take 4 $ make_interpolant 2 fn1
 -}
 
 -- | Show successive contributions
-eval_app :: (RealFrac a, IArray UArray a)
+eval_app :: (RealFrac a, U.Unbox a)
          => [AppOrder AList a] -> DOMU a -> [a]
 eval_app grid xs = map (\l -> eval_approximant_order l xs) grid
 
-ta11 :: RealFrac a => IArray UArray a => (a, a, [a])
+ta11 :: RealFrac a => U.Unbox a => (a, a, [a])
 ta11 = let xs = to_DOMU [0.49,0.51]
            exact = fn1 xs
            -- successive approximations

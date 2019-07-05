@@ -30,9 +30,9 @@ ghc-options:
 
 library:
   dependencies:
-    - array
     - base
     - containers
+    - vector
   source-dirs: src
 
 executables:
