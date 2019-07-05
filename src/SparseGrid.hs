@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -97,71 +98,72 @@ tlevel1 = levels_of_order 2 3
 -- errors, we introduce the newtype DOMU. It has no run-time
 -- overhead
 
-type DOM = UArray Int Double            -- ^ unnormalized domain RI^d
-newtype DOMU = DOMU{domu :: UArray Int Double} -- ^ [0,1]^d
-
--- Convert the function RI^d -> R into [0,1]^d -> R
+type DOM a = UArray Int a            -- ^ unnormalized domain RI^d
+newtype DOMU a = DOMU{domu :: UArray Int a} -- ^ [0,1]^d
 
 {-
-toDOMU :: [(Double,Double)] -> (DOM -> Double) -> (DOMU -> Double)
+-- Convert the function RI^d -> R into [0,1]^d -> R
+
+toDOMU :: [(a,a)] -> (DOM a -> a) -> (DOMU a -> a)
 toDOMU minmax f = 
 
   x * span_i + min 
 -}
 
 -- | Approximant is a list of successive approximation orders
-type Approximant coll = [AppOrder coll]
+type Approximant coll a = [AppOrder coll a]
 
 -- | One approximation of order n; a collection of levels IndexL
-data AppOrder coll = AppOrder !Order (coll IndexL (AppLevel coll))
+data AppOrder coll a = AppOrder !Order (coll IndexL (AppLevel coll a))
 
 -- | One particular anisotropic grid Omega_L
 -- A collection of points/basis functions identified by J and the values
 -- at these points
-newtype AppLevel coll = AppLevel (coll IndexJ Double)
+newtype AppLevel coll a = AppLevel (coll IndexJ a)
 
-deriving instance Eq (coll IndexL (AppLevel coll)) => Eq (AppOrder coll)
-deriving instance Ord (coll IndexL (AppLevel coll)) => Ord (AppOrder coll)
+deriving instance Eq (coll IndexL (AppLevel coll a)) => Eq (AppOrder coll a)
+deriving instance Ord (coll IndexL (AppLevel coll a)) => Ord (AppOrder coll a)
 
-deriving instance Eq (coll IndexJ Double) => Eq (AppLevel coll)
-deriving instance Ord (coll IndexJ Double) => Ord (AppLevel coll)
+deriving instance Eq (coll IndexJ a) => Eq (AppLevel coll a)
+deriving instance Ord (coll IndexJ a) => Ord (AppLevel coll a)
 
-instance Show (AppOrder M.Map) where
+instance Show a => Show (AppOrder M.Map a) where
     show (AppOrder _ coll) = "L" ++ show (M.toList coll)
 
-instance Show (AppLevel M.Map) where
+instance Show a => Show (AppLevel M.Map a) where
     show (AppLevel coll) = "J" ++ show (M.toList coll)
 
 newtype AList k v = AList{alist:: [(k,v)]}
   deriving (Eq, Ord)
 
-instance Show (AppOrder AList) where
+instance Show a => Show (AppOrder AList a) where
     show (AppOrder _ coll) = "L" ++ show (alist coll)
-instance Show (AppLevel AList) where
+instance Show a => Show (AppLevel AList a) where
     show (AppLevel coll) = "J" ++ show (alist coll)
 
 
 -- ------------------------------------------------------------------------
 -- * Computing the Interpolant
 --
--- Representation of the function (DOMU -> Double) on the hierarchical,
+-- Representation of the function (DOMU a -> a) on the hierarchical,
 -- discrete domain
 -- A point in the discrete domain is identified by an index
 -- (L,J) representing a fractional number J_i/2^L_i, i=0..Dim-1
 
-make_discrete :: Dim -> (DOMU -> Double) -> Approximant M.Map 
+make_discrete :: (RealFloat a, IArray UArray a)
+              => Dim -> (DOMU a -> a) -> Approximant M.Map a
 make_discrete d fn = map mk_order [1..]
  where
  mk_order n = AppOrder n (M.fromList . map mk_level $ levels_of_order d n)
  mk_level l = (l, AppLevel (M.fromList . map (mk_pt l) $ proper_js l))
  mk_pt l j = (j, fn $ pt_to_domu l j)
- pt_to_domu :: IndexL -> IndexJ -> DOMU
+ pt_to_domu :: (RealFloat a, IArray UArray a) => IndexL -> IndexJ -> DOMU a
  pt_to_domu l j = DOMU . listArray (bounds $ unIDX l) $
                    zipWith dpoint_to_R (idx_to_list l) (idx_to_list j)
 
 
 -- | Evaluate a discretized function at the given discrete point
-eval_discrete_fn :: Approximant M.Map -> IndexL -> IndexJ -> Double
+eval_discrete_fn :: Approximant M.Map a -> IndexL -> IndexJ -> a
 eval_discrete_fn grid l j = 
   let AppOrder _ ls = grid !! (norm1 l - 1)
       Just (AppLevel js) = M.lookup l ls
@@ -202,7 +204,7 @@ normalize_pt l j = do
 -- [-1/2 1 -1/2]^d centered at (L,J)
 -- Return the array of normalized points and their coefficients
 -- If the point falls at the boundary, ignore it.
-neighbors_pt :: IndexL -> IndexJ -> [(Double, (IndexL,IndexJ))]
+neighbors_pt :: Fractional a => IndexL -> IndexJ -> [(a, (IndexL,IndexJ))]
 neighbors_pt l j = do
  (f,js) <- mkk (idx_to_list j)
  maybe mzero (return . (,) f) $ normalize_pt l (idx_from_list js)
@@ -233,7 +235,8 @@ neighbors_pt l j = do
 
 
 -- | Compute the interpolant
-make_interpolant :: Dim -> (DOMU -> Double) -> Approximant AList
+make_interpolant :: (RealFloat a, IArray UArray a)
+                 => Dim -> (DOMU a -> a) -> Approximant AList a
 make_interpolant d fn = map mk_order [1..]
  where
  discrete_fn = make_discrete d fn
@@ -253,7 +256,7 @@ make_interpolant d fn = map mk_order [1..]
 --  the index j = 1 + 2*floor(2^(l-1) * x)
 --  the function is 1 - abs(2*y - 1), y = fraction(2^(l-1) * x)
 
-eval_phi :: IndexL -> DOMU -> (IndexJ, Double)
+eval_phi :: (RealFloat a, IArray UArray a) => IndexL -> DOMU a -> (IndexJ, a)
 eval_phi l (DOMU x) = (idx_from_list js,r)
  where
  (js,r) = foldr (\ (j,v) (js,vs) -> (j:js,v * vs)) ([],1.0) $ 
@@ -291,7 +294,8 @@ eval_phi l (DOMU x) = (idx_from_list js,r)
 -}
 
 -- | Evaluate an approximant of the given order at the given point in DOMU
-eval_approximant_order :: AppOrder AList -> DOMU -> Double
+eval_approximant_order :: (RealFloat a, IArray UArray a)
+                       => AppOrder AList a -> DOMU a -> a
 eval_approximant_order (AppOrder _ (AList ls)) xs = foldr eval_l 0 ls
  where
  eval_l (l,AppLevel (AList js)) acc = 
@@ -301,7 +305,8 @@ eval_approximant_order (AppOrder _ (AList ls)) xs = foldr eval_l 0 ls
 
 -- | Here, we assume the grid list to be finite
 -- We should truncate the approximant first
-eval_approximant :: Approximant AList -> DOMU -> Double
+eval_approximant :: (RealFloat a, IArray UArray a)
+                 => Approximant AList a -> DOMU a -> a
 eval_approximant grid xs = 
     foldr (\l acc -> acc + eval_approximant_order l xs) 0 grid
 
@@ -314,15 +319,15 @@ pow2 :: Order -> Int
 pow2 l = 1 `shiftL` l
 
 -- | compute j/2^l
-dpoint_to_R :: Int -> Int -> Double
+dpoint_to_R :: RealFloat a => Int -> Int -> a
 dpoint_to_R l j = scaleFloat (-l) (fromIntegral j)
 
 -- | Scale a point: x * 2^l
-scale_x :: Int -> Double -> Double
+scale_x :: RealFloat a => Int -> a -> a
 scale_x l x = scaleFloat l x
 
--- | Used for testing. Assume [Double] is in [0,1]^d
-to_DOMU :: [Double] -> DOMU
+-- | Used for testing. Assume [a] is in [0,1]^d
+to_DOMU :: IArray UArray a => [a] -> DOMU a
 to_DOMU xs = DOMU . listArray (0,length xs - 1) $ xs
 
 -- ------------------------------------------------------------------------
@@ -330,14 +335,15 @@ to_DOMU xs = DOMU . listArray (0,length xs - 1) $ xs
 
 -- | Sample function on a 2d DOMU
 
-fn0 :: DOMU -> Double
+fn0 :: (Num a, IArray UArray a) => DOMU a -> a
 fn0 (DOMU dm) = product $ 
                 zipWith (\c x -> c * (1 - abs (2*x - 1))) [2,3] (elems dm)
 
-fn1 :: DOMU -> Double
+fn1 :: (Num a, IArray UArray a) => DOMU a -> a
 fn1 (DOMU dm) = product $ 
                 zipWith (\c x -> c * (1 - (2*x - 1)^2)) [2,3] (elems dm)
 
+td1 :: (RealFloat a, IArray UArray a) => [AppOrder M.Map a]
 td1 = take 3 $ make_discrete 2 fn1
 {-
  [L[], -- order 1
@@ -377,6 +383,7 @@ td1 = take 3 $ make_discrete 2 fn1
  L[([3],J[([1],0.0),([3],0.0),([5],0.0),([7],0.0)])]]
 -}
 
+ta0 :: (RealFloat a, IArray UArray a) => [AppOrder AList a]
 ta0 = take 4 $ make_interpolant 2 fn0
 {-
  [L[], -- order 1
@@ -388,12 +395,15 @@ ta0 = take 4 $ make_interpolant 2 fn0
     ([3,1],J[([1,1],0.0),([3,1],0.0),([5,1],0.0),([7,1],0.0)])]]
 -}
 
+ta01 :: (RealFloat a, IArray UArray a) => a
 ta01 = eval_approximant ta0 (to_DOMU [0.5,0.5])
 -- 6.0
 
+ta02 :: (RealFloat a, IArray UArray a) => a
 ta02 = eval_approximant ta0 (to_DOMU [0.49,0.51])
 -- 5.7623999999999995
 
+ta1 :: (RealFloat a, IArray UArray a) => [AppOrder AList a]
 ta1 = take 4 $ make_interpolant 2 fn1
 {-
  [L[], -- order 1
@@ -407,8 +417,11 @@ ta1 = take 4 $ make_interpolant 2 fn1
 -}
 
 -- | Show successive contributions
+eval_app :: (RealFloat a, IArray UArray a)
+         => [AppOrder AList a] -> DOMU a -> [a]
 eval_app grid xs = map (\l -> eval_approximant_order l xs) grid
 
+ta11 :: RealFloat a => IArray UArray a => (a, a, [a])
 ta11 = let xs = to_DOMU [0.49,0.51]
            exact = fn1 xs
            -- successive approximations
